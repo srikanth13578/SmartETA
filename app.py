@@ -184,6 +184,36 @@ ROUTES = {
         ("KR Puram", 13.0027, 77.6975),
         ("Marathahalli", 12.9569, 77.7011),
     ],
+    "Route 6 - Banashankari to Silk Board": [
+        ("Banashankari", 12.9255, 77.5468),
+        ("JP Nagar", 12.9081, 77.5833),
+        ("BTM Layout", 12.9166, 77.6101),
+        ("Silk Board", 12.9172, 77.6228),
+    ],
+    "Route 7 - Yeshwantpur to Majestic": [
+        ("Yeshwantpur", 13.0284, 77.5540),
+        ("Malleshwaram", 13.0067, 77.5709),
+        ("Rajajinagar", 12.9908, 77.5525),
+        ("Majestic (KBS)", 12.9767, 77.5713),
+    ],
+    "Route 8 - HSR Layout to Domlur": [
+        ("HSR Layout", 12.9121, 77.6446),
+        ("Koramangala", 12.9352, 77.6245),
+        ("Ejipura", 12.9413, 77.6335),
+        ("Domlur", 12.9612, 77.6386),
+    ],
+    "Route 9 - Vijayanagar to Malleshwaram": [
+        ("Vijayanagar", 12.9719, 77.5364),
+        ("Rajajinagar", 12.9908, 77.5525),
+        ("Sadashivanagar", 13.0068, 77.5807),
+        ("Malleshwaram", 13.0067, 77.5709),
+    ],
+    "Route 10 - RT Nagar to KR Puram": [
+        ("RT Nagar", 13.0198, 77.5959),
+        ("Hennur", 13.0353, 77.6412),
+        ("Horamavu", 13.0243, 77.6551),
+        ("KR Puram", 13.0027, 77.6975),
+    ],
 }
 ROUTE_NAMES = list(ROUTES.keys())
 
@@ -472,11 +502,44 @@ def render_home(live_df):
         st.plotly_chart(fig, use_container_width=True)
 
 
-def render_passenger(live_df):
-    st.title("📱 Passenger Mobile App")
-    st.caption("Check live occupancy before you board — pick the least crowded bus.")
+def render_passenger(live_df, model, feature_cols):
+    st.title("📱 Passenger App")
+    st.caption("Plan your trip — pick a route, choose your travel time, and check live or predicted occupancy.")
 
     route = st.selectbox("Select your route", ROUTE_NAMES)
+
+    st.markdown("**When are you travelling?**")
+    tc1, tc2 = st.columns(2)
+    with tc1:
+        travel_day = st.selectbox(
+            "Day",
+            ["Today", "Tomorrow", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+        )
+    with tc2:
+        travel_time = st.time_input("Time", value=datetime.now().time())
+
+    day_map = {"Monday": 0, "Tuesday": 1, "Wednesday": 2, "Thursday": 3, "Friday": 4, "Saturday": 5, "Sunday": 6}
+    now = datetime.now()
+    if travel_day == "Today":
+        dow = now.weekday()
+    elif travel_day == "Tomorrow":
+        dow = (now.weekday() + 1) % 7
+    else:
+        dow = day_map[travel_day]
+
+    predicted_occ = predict_occupancy(model, feature_cols, travel_time.hour, dow, route)
+    predicted_occ = float(np.clip(predicted_occ, 3, 100))
+    pred_status = "Overcrowded" if predicted_occ >= 75 else ("Moderate" if predicted_occ >= 45 else "Comfortable")
+    pred_badge = {"Comfortable": "🟢", "Moderate": "🟡", "Overcrowded": "🔴"}[pred_status]
+
+    st.info(
+        f"📊 **Predicted occupancy for {travel_day} at {travel_time.strftime('%I:%M %p')}:** "
+        f"{predicted_occ:.0f}% {pred_badge} ({pred_status})"
+    )
+
+    st.markdown("---")
+    st.subheader("Live buses on this route right now")
+
     route_buses = live_df[live_df["route"] == route].copy().sort_values("progress")
 
     if route_buses.empty:
@@ -954,7 +1017,7 @@ def main():
     if page == "🏠 Home":
         render_home(live_df)
     elif page == "📱 Passenger App":
-        render_passenger(live_df)
+        render_passenger(live_df, model, feature_cols)
     elif page == "🚍 Driver Dashboard":
         render_driver(live_df, model, feature_cols)
     elif page == "🛠️ Admin Dashboard":
