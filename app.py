@@ -700,21 +700,79 @@ ROLE_PAGES = {
 
 
 def render_login():
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1, 1.2, 1])
-    with col2:
-        st.title("🚌 SmartETA")
-        st.caption("Sign in to continue")
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        if st.button("Login", use_container_width=True):
+    st.markdown(
+        """
+        <style>
+        [data-testid="stVerticalBlockBorderWrapper"] {
+            max-width: 380px;
+            margin: 6vh auto 0 auto;
+        }
+        [data-testid="stVerticalBlockBorderWrapper"] > div {
+            background: #161f36;
+            border: 1px solid #26314d;
+            border-radius: 18px;
+            padding: 30px 30px 10px 30px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.35);
+        }
+        .login-logo {
+            font-size: 2.6rem;
+            text-align: center;
+            margin-bottom: 4px;
+        }
+        .login-title {
+            text-align: center;
+            font-family: 'Poppins', sans-serif;
+            font-weight: 700;
+            font-size: 1.5rem;
+            color: #f1f5f9;
+            margin-bottom: 2px;
+        }
+        .login-subtitle {
+            text-align: center;
+            color: #94a3b8;
+            font-size: 0.88rem;
+            margin-bottom: 22px;
+        }
+        .login-demo {
+            text-align: center;
+            color: #64748b;
+            font-size: 0.78rem;
+            margin-top: 14px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    with st.container(border=True):
+        st.markdown('<div class="login-logo">🚌</div>', unsafe_allow_html=True)
+        st.markdown('<div class="login-title">SmartETA</div>', unsafe_allow_html=True)
+        st.markdown('<div class="login-subtitle">Sign in to your account</div>', unsafe_allow_html=True)
+
+        username = st.text_input("Username", placeholder="Enter your username", label_visibility="collapsed")
+        password = st.text_input("Password", type="password", placeholder="Enter your password", label_visibility="collapsed")
+
+        role_hint = st.selectbox(
+            "I am a",
+            ["Passenger", "Driver", "Admin"],
+            label_visibility="collapsed",
+        )
+
+        if st.button("Sign In", use_container_width=True):
             user = verify_login(username, password)
             if user:
-                st.session_state.user = {"username": user.username, "role": user.role}
-                st.rerun()
+                if user.role != role_hint.lower():
+                    st.error(f"This account is registered as '{user.role}', not '{role_hint}'. Select the correct role.")
+                else:
+                    st.session_state.user = {"username": user.username, "role": user.role}
+                    st.rerun()
             else:
                 st.error("Invalid username or password.")
-        st.caption("Demo logins: passenger1 / pass123 · driver1 / drive123 · admin1 / admin123")
+
+        st.markdown(
+            '<div class="login-demo">Demo: passenger1/pass123 · driver1/drive123 · admin1/admin123</div>',
+            unsafe_allow_html=True,
+        )
 
 
 def main():
