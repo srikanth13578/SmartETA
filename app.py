@@ -1,8 +1,8 @@
 """
-Smart Bus Transit System — Design Thinking Prototype
------------------------------------------------------
-A single-file Streamlit application simulating a smart public-transport
-platform with dummy/synthetic data. Built for a design-thinking project.
+SmartETA — ML-Driven Real-Time Bus Arrival Prediction & Transit Monitoring
+---------------------------------------------------------------------------
+A Streamlit application for a smart public-transport platform covering
+Bangalore transit routes, with live tracking and ML-based prediction.
 
 Features implemented:
   * Real-time occupancy tracking (simulated live buses)
@@ -35,7 +35,7 @@ from sklearn.ensemble import RandomForestRegressor
 # PAGE CONFIG
 # ----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Smart Bus Transit System",
+    page_title="SmartETA",
     page_icon="🚌",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -45,37 +45,38 @@ BUS_CAPACITY = 50
 BUSES_PER_ROUTE = 3
 
 # ----------------------------------------------------------------------------
-# DUMMY ROUTE NETWORK (Chennai-inspired, fictional coordinates for demo)
+# ROUTE NETWORK (Bangalore, BMTC-corridor-inspired coordinates for demo)
 # ----------------------------------------------------------------------------
 ROUTES = {
-    "Route 1 - T Nagar to Adyar": [
-        ("T Nagar", 13.0418, 80.2341),
-        ("Saidapet", 13.0206, 80.2219),
-        ("Guindy", 13.0067, 80.2206),
-        ("Adyar", 13.0012, 80.2565),
+    "Route 1 - Majestic to Koramangala": [
+        ("Majestic (KBS)", 12.9767, 77.5713),
+        ("Shivajinagar", 12.9855, 77.6057),
+        ("MG Road", 12.9757, 77.6098),
+        ("Koramangala", 12.9352, 77.6245),
     ],
-    "Route 2 - Anna Nagar to Central": [
-        ("Anna Nagar", 13.0850, 80.2101),
-        ("Kilpauk", 13.0827, 80.2412),
-        ("Egmore", 13.0732, 80.2609),
-        ("Central Station", 13.0827, 80.2755),
+    "Route 2 - Whitefield to MG Road": [
+        ("Whitefield", 12.9698, 77.7500),
+        ("Marathahalli", 12.9569, 77.7011),
+        ("Indiranagar", 12.9719, 77.6412),
+        ("MG Road", 12.9757, 77.6098),
     ],
-    "Route 3 - Velachery to Tambaram": [
-        ("Velachery", 12.9791, 80.2183),
-        ("Pallikaranai", 12.9345, 80.1979),
-        ("Medavakkam", 12.9165, 80.1893),
-        ("Tambaram", 12.9249, 80.1000),
+    "Route 3 - Electronic City to Silk Board": [
+        ("Electronic City", 12.8452, 77.6602),
+        ("Bommanahalli", 12.8988, 77.6146),
+        ("BTM Layout", 12.9166, 77.6101),
+        ("Silk Board", 12.9172, 77.6228),
     ],
-    "Route 4 - Porur to Vadapalani": [
-        ("Porur", 13.0359, 80.1567),
-        ("Virugambakkam", 13.0500, 80.1900),
-        ("KK Nagar", 13.0400, 80.2100),
-        ("Vadapalani", 13.0500, 80.2121),
+    "Route 4 - Jayanagar to Indiranagar": [
+        ("Jayanagar", 12.9308, 77.5838),
+        ("Lalbagh", 12.9507, 77.5848),
+        ("Trinity Circle", 12.9757, 77.6098),
+        ("Indiranagar", 12.9719, 77.6412),
     ],
-    "Route 5 - Tiruvanmiyur to Mylapore": [
-        ("Tiruvanmiyur", 12.9830, 80.2594),
-        ("Besant Nagar", 13.0002, 80.2668),
-        ("Mylapore", 13.0339, 80.2695),
+    "Route 5 - Hebbal to Marathahalli": [
+        ("Hebbal", 13.0355, 77.5970),
+        ("Nagawara", 13.0359, 77.6206),
+        ("KR Puram", 13.0027, 77.6975),
+        ("Marathahalli", 12.9569, 77.7011),
     ],
 }
 ROUTE_NAMES = list(ROUTES.keys())
@@ -261,8 +262,8 @@ def color_for_status(status):
 # PAGE RENDERERS
 # ----------------------------------------------------------------------------
 def render_home(live_df):
-    st.title("🚌 Smart Bus Transit System")
-    st.caption("Design-thinking prototype — all data shown is simulated for demonstration purposes.")
+    st.title("🚌 SmartETA")
+    st.caption("Real-time bus tracking and ML-based arrival prediction for Bangalore transit routes.")
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Active Buses", len(live_df))
@@ -583,7 +584,7 @@ def main():
     model, feature_cols, _ = train_crowd_model()
     seed_history(model, feature_cols)
 
-    st.sidebar.title("🚌 Smart Transit Control")
+    st.sidebar.title("🚌 SmartETA Control")
     page = st.sidebar.radio(
         "Navigate",
         [
@@ -612,7 +613,7 @@ def main():
         st.rerun()
 
     st.sidebar.markdown("---")
-    st.sidebar.info("This is a design-thinking prototype. All bus positions, occupancy, and predictions are generated from synthetic data for demonstration.")
+    st.sidebar.info("SmartETA — real-time bus tracking and ML-based arrival/occupancy prediction for Bangalore transit routes.")
 
     live_df = get_live_bus_df()
 
