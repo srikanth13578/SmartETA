@@ -45,6 +45,106 @@ BUS_CAPACITY = 50
 BUSES_PER_ROUTE = 3
 
 # ----------------------------------------------------------------------------
+# CUSTOM THEME (CSS injection)
+# ----------------------------------------------------------------------------
+def inject_custom_css():
+    st.markdown(
+        """
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap');
+
+        html, body, [class*="css"]  {
+            font-family: 'Inter', sans-serif;
+        }
+
+        h1, h2, h3 {
+            font-family: 'Poppins', sans-serif !important;
+            font-weight: 600 !important;
+        }
+
+        /* App background */
+        [data-testid="stAppViewContainer"] {
+            background: linear-gradient(180deg, #0f172a 0%, #131c31 100%);
+        }
+        [data-testid="stHeader"] {
+            background: transparent;
+        }
+
+        /* Sidebar */
+        [data-testid="stSidebar"] {
+            background: #0b1120;
+            border-right: 1px solid #1e293b;
+        }
+        [data-testid="stSidebar"] * {
+            color: #e2e8f0 !important;
+        }
+
+        /* Metric cards */
+        [data-testid="stMetric"] {
+            background: #161f36;
+            border: 1px solid #26314d;
+            border-radius: 14px;
+            padding: 16px 18px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+        }
+        [data-testid="stMetricLabel"] {
+            color: #94a3b8 !important;
+        }
+        [data-testid="stMetricValue"] {
+            color: #38bdf8 !important;
+            font-family: 'Poppins', sans-serif !important;
+        }
+
+        /* Body text */
+        p, span, label, .stMarkdown {
+            color: #cbd5e1;
+        }
+        h1, h2, h3, h4 {
+            color: #f1f5f9 !important;
+        }
+
+        /* Buttons */
+        .stButton > button {
+            background: linear-gradient(135deg, #2563eb, #38bdf8);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            padding: 0.5rem 1.2rem;
+            font-weight: 600;
+            transition: transform 0.15s ease;
+        }
+        .stButton > button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 14px rgba(56,189,248,0.35);
+        }
+
+        /* Dataframes / tables */
+        [data-testid="stDataFrame"] {
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid #26314d;
+        }
+
+        /* Radio nav in sidebar */
+        [data-testid="stSidebar"] .stRadio label {
+            font-size: 0.95rem;
+        }
+
+        /* Alerts */
+        .stAlert {
+            border-radius: 10px;
+        }
+
+        /* Divider spacing */
+        hr {
+            border-color: #26314d !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+# ----------------------------------------------------------------------------
 # ROUTE NETWORK (Bangalore, BMTC-corridor-inspired coordinates for demo)
 # ----------------------------------------------------------------------------
 ROUTES = {
@@ -580,6 +680,7 @@ def render_allocation(model, feature_cols, live_df):
 # MAIN
 # ----------------------------------------------------------------------------
 def main():
+    inject_custom_css()
     init_state()
     model, feature_cols, _ = train_crowd_model()
     seed_history(model, feature_cols)
