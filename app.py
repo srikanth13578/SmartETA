@@ -35,7 +35,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from xgboost import XGBRegressor
 
-from auth import verify_login
+from auth import verify_login, create_user
 
 # ----------------------------------------------------------------------------
 # PAGE CONFIG
@@ -839,32 +839,75 @@ def render_login():
     with st.container(border=True):
         st.markdown('<div class="login-logo">🚌</div>', unsafe_allow_html=True)
         st.markdown('<div class="login-title">SmartETA</div>', unsafe_allow_html=True)
-        st.markdown('<div class="login-subtitle">Sign in to your account</div>', unsafe_allow_html=True)
 
-        username = st.text_input("Username", placeholder="Enter your username", label_visibility="collapsed")
-        password = st.text_input("Password", type="password", placeholder="Enter your password", label_visibility="collapsed")
+        if st.session_state.get("show_signup"):
+            _render_signup_form()
+        else:
+            _render_login_form()
 
-        role_hint = st.selectbox(
-            "I am a",
-            ["Passenger", "Driver", "Admin"],
-            label_visibility="collapsed",
-        )
 
-        if st.button("Sign In", use_container_width=True):
-            user = verify_login(username, password)
-            if user:
-                if user.role != role_hint.lower():
-                    st.error(f"This account is registered as '{user.role}', not '{role_hint}'. Select the correct role.")
-                else:
-                    st.session_state.user = {"username": user.username, "role": user.role}
-                    st.rerun()
+def _render_login_form():
+    st.markdown('<div class="login-subtitle">Sign in to your account</div>', unsafe_allow_html=True)
+
+    username = st.text_input("Username", placeholder="Enter your username", label_visibility="collapsed")
+    password = st.text_input("Password", type="password", placeholder="Enter your password", label_visibility="collapsed")
+
+    role_hint = st.selectbox(
+        "I am a",
+        ["Passenger", "Driver", "Admin"],
+        label_visibility="collapsed",
+    )
+
+    if st.button("Sign In", use_container_width=True):
+        user = verify_login(username, password)
+        if user:
+            if user.role != role_hint.lower():
+                st.error(f"This account is registered as '{user.role}', not '{role_hint}'. Select the correct role.")
             else:
-                st.error("Invalid username or password.")
+                st.session_state.user = {"username": user.username, "role": user.role}
+                st.rerun()
+        else:
+            st.error("Invalid username or password.")
 
-        st.markdown(
-            '<div class="login-demo">Demo: passenger1/pass123 · driver1/drive123 · admin1/admin123</div>',
-            unsafe_allow_html=True,
-        )
+    st.markdown(
+        '<div class="login-demo">Demo: passenger1/pass123 · driver1/drive123 · admin1/admin123</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("Don't have an account? Sign up", use_container_width=True, type="secondary"):
+        st.session_state.show_signup = True
+        st.rerun()
+
+
+def _render_signup_form():
+    st.markdown('<div class="login-subtitle">Create a new account</div>', unsafe_allow_html=True)
+
+    new_username = st.text_input("New Username", placeholder="Choose a username", label_visibility="collapsed")
+    new_password = st.text_input("New Password", type="password", placeholder="Choose a password", label_visibility="collapsed")
+    confirm_password = st.text_input("Confirm Password", type="password", placeholder="Confirm password", label_visibility="collapsed")
+    role_choice = st.selectbox(
+        "Role",
+        ["Passenger", "Driver", "Admin"],
+        label_visibility="collapsed",
+    )
+
+    if st.button("Create Account", use_container_width=True):
+        if new_password != confirm_password:
+            st.error("Passwords do not match.")
+        else:
+            success, error = create_user(new_username, new_password, role_choice.lower())
+            if success:
+                st.success("Account created! You can now sign in.")
+                st.session_state.show_signup = False
+                st.rerun()
+            else:
+                st.error(error)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("Already have an account? Sign in", use_container_width=True, type="secondary"):
+        st.session_state.show_signup = False
+        st.rerun()
 
 
 def main():
