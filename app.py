@@ -386,7 +386,7 @@ def render_home(live_df):
             get_radius=110,
             pickable=True,
         )
-        view = pdk.ViewState(latitude=13.03, longitude=80.23, zoom=10.3, pitch=0)
+        view = pdk.ViewState(latitude=12.9716, longitude=77.5946, zoom=10.3, pitch=0)
         st.pydeck_chart(
             pdk.Deck(
                 layers=[layer],
