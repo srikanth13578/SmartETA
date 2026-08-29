@@ -30,6 +30,10 @@ import plotly.graph_objects as go
 import pydeck as pdk
 import streamlit as st
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.model_selection import train_test_split
+from xgboost import XGBRegressor
 
 from auth import verify_login
 
@@ -222,6 +226,56 @@ def predict_occupancy(model, feature_cols, hour, dow, route):
         row[col] = 1
     X = pd.DataFrame([row])[feature_cols]
     return float(model.predict(X)[0])
+
+
+@st.cache_data(show_spinner=False)
+def compare_models():
+    """
+    Train Linear Regression, Random Forest, and XGBoost on the same
+    occupancy-prediction dataset with a proper train/test split, and
+    return a metrics comparison table (MAE, RMSE, R2).
+
+    This is the model-comparison study referenced in the paper's
+    methodology/results section.
+    """
+    rng = np.random.default_rng(42)
+    route_popularity = {r: rng.uniform(0.7, 1.35) for r in ROUTE_NAMES}
+
+    rows = []
+    for _ in range(6000):
+        hour = int(rng.integers(0, 24))
+        dow = int(rng.integers(0, 7))
+        route = rng.choice(ROUTE_NAMES)
+        weekend_factor = 0.55 if dow >= 5 else 1.0
+        morning = np.exp(-((hour - 8) ** 2) / 8)
+        evening = np.exp(-((hour - 18) ** 2) / 8)
+        base = (0.22 + 0.68 * (morning + evening)) * route_popularity[route] * weekend_factor
+        noise = rng.normal(0, 0.05)
+        occ = float(np.clip(base + noise, 0.03, 1.0) * 100)
+        rows.append([hour, dow, route, occ])
+
+    df = pd.DataFrame(rows, columns=["hour", "dow", "route", "occupancy"])
+    X = pd.get_dummies(df[["hour", "dow", "route"]], columns=["route"])
+    y = df["occupancy"]
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+    candidates = {
+        "Linear Regression": LinearRegression(),
+        "Random Forest": RandomForestRegressor(n_estimators=120, max_depth=9, random_state=42),
+        "XGBoost": XGBRegressor(n_estimators=150, max_depth=5, learning_rate=0.1, random_state=42),
+    }
+
+    results = []
+    for name, mdl in candidates.items():
+        mdl.fit(X_train, y_train)
+        preds = mdl.predict(X_test)
+        mae = mean_absolute_error(y_test, preds)
+        rmse = mean_squared_error(y_test, preds) ** 0.5
+        r2 = r2_score(y_test, preds)
+        results.append({"Model": name, "MAE": round(mae, 2), "RMSE": round(rmse, 2), "R2 Score": round(r2, 3)})
+
+    return pd.DataFrame(results)
 
 
 # ----------------------------------------------------------------------------
@@ -514,6 +568,43 @@ def render_driver(live_df, model, feature_cols):
         st.info(f"🤖 AI Prediction: expected occupancy on this route in ~1 hour is **{predicted:.0f}%**.")
 
 
+def render_model_comparison():
+    st.title("📊 Model Comparison")
+    st.caption("Evaluating candidate models for occupancy/ETA prediction on a held-out test split (80/20).")
+
+    with st.spinner("Training and evaluating models..."):
+        results_df = compare_models()
+
+    st.dataframe(results_df, use_container_width=True, hide_index=True)
+
+    best_model = results_df.loc[results_df["RMSE"].idxmin(), "Model"]
+    st.success(f"✅ Lowest RMSE: **{best_model}**")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        fig_mae = px.bar(results_df, x="Model", y="MAE", title="Mean Absolute Error (lower is better)")
+        fig_mae.update_layout(height=350, margin=dict(l=10, r=10, t=40, b=10))
+        st.plotly_chart(fig_mae, use_container_width=True)
+    with c2:
+        fig_rmse = px.bar(results_df, x="Model", y="RMSE", title="Root Mean Squared Error (lower is better)")
+        fig_rmse.update_layout(height=350, margin=dict(l=10, r=10, t=40, b=10))
+        st.plotly_chart(fig_rmse, use_container_width=True)
+
+    fig_r2 = px.bar(results_df, x="Model", y="R2 Score", title="R² Score (closer to 1 is better)")
+    fig_r2.update_layout(height=320, margin=dict(l=10, r=10, t=40, b=10))
+    st.plotly_chart(fig_r2, use_container_width=True)
+
+    st.markdown(
+        """
+        **Methodology:** All three models were trained on the same feature set
+        (hour of day, day of week, one-hot encoded route) and the same
+        80/20 train/test split, so the comparison isolates model choice as
+        the only variable. MAE and RMSE are in percentage-occupancy units;
+        R² measures the proportion of variance explained.
+        """
+    )
+
+
 def render_admin(live_df):
     st.title("🛠️ Admin Dashboard & Analytics")
 
@@ -695,6 +786,7 @@ ROLE_PAGES = {
         "🚨 Alerts",
         "📈 Demand Forecasting",
         "🔄 Fleet Allocation",
+        "📊 Model Comparison",
     ],
 }
 
@@ -830,6 +922,8 @@ def main():
         render_forecast(model, feature_cols)
     elif page == "🔄 Fleet Allocation":
         render_allocation(model, feature_cols, live_df)
+    elif page == "📊 Model Comparison":
+        render_model_comparison()
 
 
 if __name__ == "__main__":
