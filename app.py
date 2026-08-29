@@ -31,6 +31,8 @@ import pydeck as pdk
 import streamlit as st
 from sklearn.ensemble import RandomForestRegressor
 
+from auth import verify_login
+
 # ----------------------------------------------------------------------------
 # PAGE CONFIG
 # ----------------------------------------------------------------------------
@@ -679,25 +681,63 @@ def render_allocation(model, feature_cols, live_df):
 # ----------------------------------------------------------------------------
 # MAIN
 # ----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# AUTH: LOGIN SCREEN + ROLE-BASED PAGE ACCESS
+# ----------------------------------------------------------------------------
+ROLE_PAGES = {
+    "passenger": ["🏠 Home", "📱 Passenger App", "🚨 Alerts"],
+    "driver": ["🏠 Home", "🚍 Driver Dashboard"],
+    "admin": [
+        "🏠 Home",
+        "📱 Passenger App",
+        "🚍 Driver Dashboard",
+        "🛠️ Admin Dashboard",
+        "🚨 Alerts",
+        "📈 Demand Forecasting",
+        "🔄 Fleet Allocation",
+    ],
+}
+
+
+def render_login():
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 1.2, 1])
+    with col2:
+        st.title("🚌 SmartETA")
+        st.caption("Sign in to continue")
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        if st.button("Login", use_container_width=True):
+            user = verify_login(username, password)
+            if user:
+                st.session_state.user = {"username": user.username, "role": user.role}
+                st.rerun()
+            else:
+                st.error("Invalid username or password.")
+        st.caption("Demo logins: passenger1 / pass123 · driver1 / drive123 · admin1 / admin123")
+
+
 def main():
     inject_custom_css()
+
+    if "user" not in st.session_state:
+        render_login()
+        return
+
     init_state()
     model, feature_cols, _ = train_crowd_model()
     seed_history(model, feature_cols)
 
+    role = st.session_state.user["role"]
+    allowed_pages = ROLE_PAGES.get(role, [])
+
     st.sidebar.title("🚌 SmartETA Control")
-    page = st.sidebar.radio(
-        "Navigate",
-        [
-            "🏠 Home",
-            "📱 Passenger App",
-            "🚍 Driver Dashboard",
-            "🛠️ Admin Dashboard",
-            "🚨 Alerts",
-            "📈 Demand Forecasting",
-            "🔄 Fleet Allocation",
-        ],
-    )
+    st.sidebar.caption(f"Logged in as **{st.session_state.user['username']}** ({role})")
+    if st.sidebar.button("Logout"):
+        del st.session_state["user"]
+        st.rerun()
+
+    page = st.sidebar.radio("Navigate", allowed_pages)
 
     st.sidebar.markdown("---")
     st.sidebar.caption(f"🕒 Simulated time: **{st.session_state.sim_time.strftime('%a, %I:%M %p')}**")
