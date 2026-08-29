@@ -30,8 +30,12 @@ import plotly.graph_objects as go
 import pydeck as pdk
 import streamlit as st
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.model_selection import train_test_split
+from xgboost import XGBRegressor
 
-from auth import verify_login
+from auth import verify_login, create_user
 
 # ----------------------------------------------------------------------------
 # PAGE CONFIG
@@ -180,6 +184,36 @@ ROUTES = {
         ("KR Puram", 13.0027, 77.6975),
         ("Marathahalli", 12.9569, 77.7011),
     ],
+    "Route 6 - Banashankari to Silk Board": [
+        ("Banashankari", 12.9255, 77.5468),
+        ("JP Nagar", 12.9081, 77.5833),
+        ("BTM Layout", 12.9166, 77.6101),
+        ("Silk Board", 12.9172, 77.6228),
+    ],
+    "Route 7 - Yeshwantpur to Majestic": [
+        ("Yeshwantpur", 13.0284, 77.5540),
+        ("Malleshwaram", 13.0067, 77.5709),
+        ("Rajajinagar", 12.9908, 77.5525),
+        ("Majestic (KBS)", 12.9767, 77.5713),
+    ],
+    "Route 8 - HSR Layout to Domlur": [
+        ("HSR Layout", 12.9121, 77.6446),
+        ("Koramangala", 12.9352, 77.6245),
+        ("Ejipura", 12.9413, 77.6335),
+        ("Domlur", 12.9612, 77.6386),
+    ],
+    "Route 9 - Vijayanagar to Malleshwaram": [
+        ("Vijayanagar", 12.9719, 77.5364),
+        ("Rajajinagar", 12.9908, 77.5525),
+        ("Sadashivanagar", 13.0068, 77.5807),
+        ("Malleshwaram", 13.0067, 77.5709),
+    ],
+    "Route 10 - RT Nagar to KR Puram": [
+        ("RT Nagar", 13.0198, 77.5959),
+        ("Hennur", 13.0353, 77.6412),
+        ("Horamavu", 13.0243, 77.6551),
+        ("KR Puram", 13.0027, 77.6975),
+    ],
 }
 ROUTE_NAMES = list(ROUTES.keys())
 
@@ -222,6 +256,56 @@ def predict_occupancy(model, feature_cols, hour, dow, route):
         row[col] = 1
     X = pd.DataFrame([row])[feature_cols]
     return float(model.predict(X)[0])
+
+
+@st.cache_data(show_spinner=False)
+def compare_models():
+    """
+    Train Linear Regression, Random Forest, and XGBoost on the same
+    occupancy-prediction dataset with a proper train/test split, and
+    return a metrics comparison table (MAE, RMSE, R2).
+
+    This is the model-comparison study referenced in the paper's
+    methodology/results section.
+    """
+    rng = np.random.default_rng(42)
+    route_popularity = {r: rng.uniform(0.7, 1.35) for r in ROUTE_NAMES}
+
+    rows = []
+    for _ in range(6000):
+        hour = int(rng.integers(0, 24))
+        dow = int(rng.integers(0, 7))
+        route = rng.choice(ROUTE_NAMES)
+        weekend_factor = 0.55 if dow >= 5 else 1.0
+        morning = np.exp(-((hour - 8) ** 2) / 8)
+        evening = np.exp(-((hour - 18) ** 2) / 8)
+        base = (0.22 + 0.68 * (morning + evening)) * route_popularity[route] * weekend_factor
+        noise = rng.normal(0, 0.05)
+        occ = float(np.clip(base + noise, 0.03, 1.0) * 100)
+        rows.append([hour, dow, route, occ])
+
+    df = pd.DataFrame(rows, columns=["hour", "dow", "route", "occupancy"])
+    X = pd.get_dummies(df[["hour", "dow", "route"]], columns=["route"])
+    y = df["occupancy"]
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+    candidates = {
+        "Linear Regression": LinearRegression(),
+        "Random Forest": RandomForestRegressor(n_estimators=120, max_depth=9, random_state=42),
+        "XGBoost": XGBRegressor(n_estimators=150, max_depth=5, learning_rate=0.1, random_state=42),
+    }
+
+    results = []
+    for name, mdl in candidates.items():
+        mdl.fit(X_train, y_train)
+        preds = mdl.predict(X_test)
+        mae = mean_absolute_error(y_test, preds)
+        rmse = mean_squared_error(y_test, preds) ** 0.5
+        r2 = r2_score(y_test, preds)
+        results.append({"Model": name, "MAE": round(mae, 2), "RMSE": round(rmse, 2), "R2 Score": round(r2, 3)})
+
+    return pd.DataFrame(results)
 
 
 # ----------------------------------------------------------------------------
@@ -418,11 +502,44 @@ def render_home(live_df):
         st.plotly_chart(fig, use_container_width=True)
 
 
-def render_passenger(live_df):
-    st.title("📱 Passenger Mobile App")
-    st.caption("Check live occupancy before you board — pick the least crowded bus.")
+def render_passenger(live_df, model, feature_cols):
+    st.title("📱 Passenger App")
+    st.caption("Plan your trip — pick a route, choose your travel time, and check live or predicted occupancy.")
 
     route = st.selectbox("Select your route", ROUTE_NAMES)
+
+    st.markdown("**When are you travelling?**")
+    tc1, tc2 = st.columns(2)
+    with tc1:
+        travel_day = st.selectbox(
+            "Day",
+            ["Today", "Tomorrow", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+        )
+    with tc2:
+        travel_time = st.time_input("Time", value=datetime.now().time())
+
+    day_map = {"Monday": 0, "Tuesday": 1, "Wednesday": 2, "Thursday": 3, "Friday": 4, "Saturday": 5, "Sunday": 6}
+    now = datetime.now()
+    if travel_day == "Today":
+        dow = now.weekday()
+    elif travel_day == "Tomorrow":
+        dow = (now.weekday() + 1) % 7
+    else:
+        dow = day_map[travel_day]
+
+    predicted_occ = predict_occupancy(model, feature_cols, travel_time.hour, dow, route)
+    predicted_occ = float(np.clip(predicted_occ, 3, 100))
+    pred_status = "Overcrowded" if predicted_occ >= 75 else ("Moderate" if predicted_occ >= 45 else "Comfortable")
+    pred_badge = {"Comfortable": "🟢", "Moderate": "🟡", "Overcrowded": "🔴"}[pred_status]
+
+    st.info(
+        f"📊 **Predicted occupancy for {travel_day} at {travel_time.strftime('%I:%M %p')}:** "
+        f"{predicted_occ:.0f}% {pred_badge} ({pred_status})"
+    )
+
+    st.markdown("---")
+    st.subheader("Live buses on this route right now")
+
     route_buses = live_df[live_df["route"] == route].copy().sort_values("progress")
 
     if route_buses.empty:
@@ -512,6 +629,43 @@ def render_driver(live_df, model, feature_cols):
         next_hour = (st.session_state.sim_time + timedelta(hours=1))
         predicted = predict_occupancy(model, feature_cols, next_hour.hour, next_hour.weekday(), bus["route"])
         st.info(f"🤖 AI Prediction: expected occupancy on this route in ~1 hour is **{predicted:.0f}%**.")
+
+
+def render_model_comparison():
+    st.title("📊 Model Comparison")
+    st.caption("Evaluating candidate models for occupancy/ETA prediction on a held-out test split (80/20).")
+
+    with st.spinner("Training and evaluating models..."):
+        results_df = compare_models()
+
+    st.dataframe(results_df, use_container_width=True, hide_index=True)
+
+    best_model = results_df.loc[results_df["RMSE"].idxmin(), "Model"]
+    st.success(f"✅ Lowest RMSE: **{best_model}**")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        fig_mae = px.bar(results_df, x="Model", y="MAE", title="Mean Absolute Error (lower is better)")
+        fig_mae.update_layout(height=350, margin=dict(l=10, r=10, t=40, b=10))
+        st.plotly_chart(fig_mae, use_container_width=True)
+    with c2:
+        fig_rmse = px.bar(results_df, x="Model", y="RMSE", title="Root Mean Squared Error (lower is better)")
+        fig_rmse.update_layout(height=350, margin=dict(l=10, r=10, t=40, b=10))
+        st.plotly_chart(fig_rmse, use_container_width=True)
+
+    fig_r2 = px.bar(results_df, x="Model", y="R2 Score", title="R² Score (closer to 1 is better)")
+    fig_r2.update_layout(height=320, margin=dict(l=10, r=10, t=40, b=10))
+    st.plotly_chart(fig_r2, use_container_width=True)
+
+    st.markdown(
+        """
+        **Methodology:** All three models were trained on the same feature set
+        (hour of day, day of week, one-hot encoded route) and the same
+        80/20 train/test split, so the comparison isolates model choice as
+        the only variable. MAE and RMSE are in percentage-occupancy units;
+        R² measures the proportion of variance explained.
+        """
+    )
 
 
 def render_admin(live_df):
@@ -695,6 +849,7 @@ ROLE_PAGES = {
         "🚨 Alerts",
         "📈 Demand Forecasting",
         "🔄 Fleet Allocation",
+        "📊 Model Comparison",
     ],
 }
 
@@ -747,32 +902,75 @@ def render_login():
     with st.container(border=True):
         st.markdown('<div class="login-logo">🚌</div>', unsafe_allow_html=True)
         st.markdown('<div class="login-title">SmartETA</div>', unsafe_allow_html=True)
-        st.markdown('<div class="login-subtitle">Sign in to your account</div>', unsafe_allow_html=True)
 
-        username = st.text_input("Username", placeholder="Enter your username", label_visibility="collapsed")
-        password = st.text_input("Password", type="password", placeholder="Enter your password", label_visibility="collapsed")
+        if st.session_state.get("show_signup"):
+            _render_signup_form()
+        else:
+            _render_login_form()
 
-        role_hint = st.selectbox(
-            "I am a",
-            ["Passenger", "Driver", "Admin"],
-            label_visibility="collapsed",
-        )
 
-        if st.button("Sign In", use_container_width=True):
-            user = verify_login(username, password)
-            if user:
-                if user.role != role_hint.lower():
-                    st.error(f"This account is registered as '{user.role}', not '{role_hint}'. Select the correct role.")
-                else:
-                    st.session_state.user = {"username": user.username, "role": user.role}
-                    st.rerun()
+def _render_login_form():
+    st.markdown('<div class="login-subtitle">Sign in to your account</div>', unsafe_allow_html=True)
+
+    username = st.text_input("Username", placeholder="Enter your username", label_visibility="collapsed")
+    password = st.text_input("Password", type="password", placeholder="Enter your password", label_visibility="collapsed")
+
+    role_hint = st.selectbox(
+        "I am a",
+        ["Passenger", "Driver", "Admin"],
+        label_visibility="collapsed",
+    )
+
+    if st.button("Sign In", use_container_width=True):
+        user = verify_login(username, password)
+        if user:
+            if user.role != role_hint.lower():
+                st.error(f"This account is registered as '{user.role}', not '{role_hint}'. Select the correct role.")
             else:
-                st.error("Invalid username or password.")
+                st.session_state.user = {"username": user.username, "role": user.role}
+                st.rerun()
+        else:
+            st.error("Invalid username or password.")
 
-        st.markdown(
-            '<div class="login-demo">Demo: passenger1/pass123 · driver1/drive123 · admin1/admin123</div>',
-            unsafe_allow_html=True,
-        )
+    st.markdown(
+        '<div class="login-demo">Demo: passenger1/pass123 · driver1/drive123 · admin1/admin123</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("Don't have an account? Sign up", use_container_width=True, type="secondary"):
+        st.session_state.show_signup = True
+        st.rerun()
+
+
+def _render_signup_form():
+    st.markdown('<div class="login-subtitle">Create a new account</div>', unsafe_allow_html=True)
+
+    new_username = st.text_input("New Username", placeholder="Choose a username", label_visibility="collapsed")
+    new_password = st.text_input("New Password", type="password", placeholder="Choose a password", label_visibility="collapsed")
+    confirm_password = st.text_input("Confirm Password", type="password", placeholder="Confirm password", label_visibility="collapsed")
+    role_choice = st.selectbox(
+        "Role",
+        ["Passenger", "Driver", "Admin"],
+        label_visibility="collapsed",
+    )
+
+    if st.button("Create Account", use_container_width=True):
+        if new_password != confirm_password:
+            st.error("Passwords do not match.")
+        else:
+            success, error = create_user(new_username, new_password, role_choice.lower())
+            if success:
+                st.success("Account created! You can now sign in.")
+                st.session_state.show_signup = False
+                st.rerun()
+            else:
+                st.error(error)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("Already have an account? Sign in", use_container_width=True, type="secondary"):
+        st.session_state.show_signup = False
+        st.rerun()
 
 
 def main():
@@ -819,7 +1017,7 @@ def main():
     if page == "🏠 Home":
         render_home(live_df)
     elif page == "📱 Passenger App":
-        render_passenger(live_df)
+        render_passenger(live_df, model, feature_cols)
     elif page == "🚍 Driver Dashboard":
         render_driver(live_df, model, feature_cols)
     elif page == "🛠️ Admin Dashboard":
@@ -830,6 +1028,8 @@ def main():
         render_forecast(model, feature_cols)
     elif page == "🔄 Fleet Allocation":
         render_allocation(model, feature_cols, live_df)
+    elif page == "📊 Model Comparison":
+        render_model_comparison()
 
 
 if __name__ == "__main__":
