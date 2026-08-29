@@ -39,6 +39,10 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 streamlit run app.py
+SQLAlchemy
+psycopg2-binary
+passlib
+bcrypt==4.0.1
 ```
 
 ## Status
