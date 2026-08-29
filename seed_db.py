@@ -46,6 +46,36 @@ ROUTES = {
         ("KR Puram", 13.0027, 77.6975),
         ("Marathahalli", 12.9569, 77.7011),
     ],
+    "Route 6 - Banashankari to Silk Board": [
+        ("Banashankari", 12.9255, 77.5468),
+        ("JP Nagar", 12.9081, 77.5833),
+        ("BTM Layout", 12.9166, 77.6101),
+        ("Silk Board", 12.9172, 77.6228),
+    ],
+    "Route 7 - Yeshwantpur to Majestic": [
+        ("Yeshwantpur", 13.0284, 77.5540),
+        ("Malleshwaram", 13.0067, 77.5709),
+        ("Rajajinagar", 12.9908, 77.5525),
+        ("Majestic (KBS)", 12.9767, 77.5713),
+    ],
+    "Route 8 - HSR Layout to Domlur": [
+        ("HSR Layout", 12.9121, 77.6446),
+        ("Koramangala", 12.9352, 77.6245),
+        ("Ejipura", 12.9413, 77.6335),
+        ("Domlur", 12.9612, 77.6386),
+    ],
+    "Route 9 - Vijayanagar to Malleshwaram": [
+        ("Vijayanagar", 12.9719, 77.5364),
+        ("Rajajinagar", 12.9908, 77.5525),
+        ("Sadashivanagar", 13.0068, 77.5807),
+        ("Malleshwaram", 13.0067, 77.5709),
+    ],
+    "Route 10 - RT Nagar to KR Puram": [
+        ("RT Nagar", 13.0198, 77.5959),
+        ("Hennur", 13.0353, 77.6412),
+        ("Horamavu", 13.0243, 77.6551),
+        ("KR Puram", 13.0027, 77.6975),
+    ],
 }
 
 BUSES_PER_ROUTE = 3
