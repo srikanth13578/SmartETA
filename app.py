@@ -217,6 +217,56 @@ ROUTES = {
 }
 ROUTE_NAMES = list(ROUTES.keys())
 
+
+# ----------------------------------------------------------------------------
+# TRIP MODE COMPARISON (Bus vs Namma Metro) — static/approximate estimates
+# ----------------------------------------------------------------------------
+# Only routes that genuinely run near an existing Namma Metro corridor get a
+# metro comparison. Others simply show the bus estimate alone. Metro time/fare
+# are static approximations for demo purposes, not a live metro feed.
+METRO_CORRIDORS = {
+    "Route 2 - Whitefield to MG Road": {"line": "Purple Line", "time_min": 42, "fare": 60},
+    "Route 7 - Yeshwantpur to Majestic": {"line": "Green Line", "time_min": 18, "fare": 30},
+    "Route 9 - Vijayanagar to Malleshwaram": {"line": "Green Line", "time_min": 14, "fare": 25},
+}
+
+BUS_AVG_SPEED_KMPH = 18  # accounts for city traffic/stops
+BUS_BASE_FARE = 10
+BUS_FARE_PER_KM = 1.5
+
+
+def _haversine_km(lat1, lon1, lat2, lon2):
+    from math import radians, sin, cos, sqrt, atan2
+    R = 6371
+    dlat, dlon = radians(lat2 - lat1), radians(lon2 - lon1)
+    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+    return R * 2 * atan2(sqrt(a), sqrt(1 - a))
+
+
+def route_distance_km(route_name):
+    stops = ROUTES[route_name]
+    dist = 0.0
+    for i in range(len(stops) - 1):
+        _, lat1, lon1 = stops[i]
+        _, lat2, lon2 = stops[i + 1]
+        dist += _haversine_km(lat1, lon1, lat2, lon2)
+    return dist
+
+
+def estimate_trip(route_name):
+    """Returns a dict with bus (and metro, if available) time/fare estimates."""
+    dist_km = route_distance_km(route_name)
+    bus_time_min = round((dist_km / BUS_AVG_SPEED_KMPH) * 60)
+    bus_fare = round(BUS_BASE_FARE + dist_km * BUS_FARE_PER_KM)
+
+    result = {
+        "distance_km": round(dist_km, 1),
+        "bus_time_min": bus_time_min,
+        "bus_fare": bus_fare,
+        "metro": METRO_CORRIDORS.get(route_name),
+    }
+    return result
+
 # ----------------------------------------------------------------------------
 # SYNTHETIC MODEL TRAINING (AI-based crowd prediction)
 # ----------------------------------------------------------------------------
@@ -536,6 +586,32 @@ def render_passenger(live_df, model, feature_cols):
         f"📊 **Predicted occupancy for {travel_day} at {travel_time.strftime('%I:%M %p')}:** "
         f"{predicted_occ:.0f}% {pred_badge} ({pred_status})"
     )
+
+    st.markdown("---")
+    st.subheader("🧭 How should you travel?")
+
+    trip = estimate_trip(route)
+    st.caption(f"Approximate route distance: {trip['distance_km']} km")
+
+    if trip["metro"]:
+        metro = trip["metro"]
+        c1, c2 = st.columns(2)
+        with c1:
+            st.metric("🚌 Bus", f"{trip['bus_time_min']} min", f"₹{trip['bus_fare']}")
+        with c2:
+            st.metric(f"🚇 Metro ({metro['line']})", f"{metro['time_min']} min", f"₹{metro['fare']}")
+
+        if metro["fare"] < trip["bus_fare"] and metro["time_min"] < trip["bus_time_min"]:
+            st.success(f"🚇 Metro is both faster and cheaper on this route — recommended.")
+        elif metro["time_min"] < trip["bus_time_min"]:
+            st.info(f"🚇 Metro is faster, but costs ₹{metro['fare'] - trip['bus_fare']} more than the bus.")
+        elif metro["fare"] < trip["bus_fare"]:
+            st.info(f"🚇 Metro is cheaper, but takes {metro['time_min'] - trip['bus_time_min']} min longer than direct estimates suggest — check connectivity.")
+        else:
+            st.info("🚌 Bus is the more practical option on this route.")
+    else:
+        st.metric("🚌 Bus (estimated)", f"{trip['bus_time_min']} min", f"₹{trip['bus_fare']}")
+        st.caption("No direct Namma Metro corridor covers this route — bus is the primary option.")
 
     st.markdown("---")
     st.subheader("Live buses on this route right now")
