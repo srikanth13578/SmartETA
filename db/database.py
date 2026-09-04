@@ -1,17 +1,17 @@
 """
 Database connection setup for SmartETA.
 
-Defaults to a local SQLite file for development. Set the DATABASE_URL
-environment variable to point at PostgreSQL in production/Azure, e.g.:
-
-    export DATABASE_URL="postgresql+psycopg2://user:password@host:5432/smarteta"
-
-No code changes needed to switch — just set the env var.
+Reads DATABASE_URL from a .env file in the project root (or from an
+actual exported env var, which takes priority). Falls back to a local
+SQLite file only if neither is set.
 """
 
 import os
+from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
+
+load_dotenv()  # reads .env in the current working directory, if present
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///smarteta.db")
 
