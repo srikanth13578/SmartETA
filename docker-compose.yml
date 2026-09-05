@@ -1,0 +1,27 @@
+version: "3.8"
+
+services:
+  db:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_DB: smarteta
+      POSTGRES_USER: smarteta_user
+      POSTGRES_PASSWORD: srikanth13
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  app:
+    build: .
+    restart: always
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql+psycopg2://smarteta_user:srikanth13@db:5432/smarteta
+    ports:
+      - "8501:8501"
+
+volumes:
+  pgdata:
