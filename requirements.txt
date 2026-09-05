@@ -8,4 +8,5 @@ SQLAlchemy
 psycopg2-binary
 passlib
 bcrypt==4.0.1
-xgboost>=2.0python-dotenv>=1.0
+xgboost>=2.0
+python-dotenv>=1.0
