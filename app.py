@@ -36,6 +36,13 @@ from sklearn.model_selection import train_test_split
 from xgboost import XGBRegressor
 
 from auth import verify_login, create_user
+from db.reports import (
+    ensure_tables,
+    save_driver_report,
+    get_recent_reports,
+    get_latest_reports_for_route,
+    get_report_counts,
+)
 
 # ----------------------------------------------------------------------------
 # PAGE CONFIG
@@ -49,6 +56,23 @@ st.set_page_config(
 
 BUS_CAPACITY = 50
 BUSES_PER_ROUTE = 3
+LIVE_MODEL_NAME = "XGBoost"
+
+
+@st.cache_resource(show_spinner=False)
+def _ensure_db_tables():
+    """Create any missing tables (e.g. driver_reports) once per server start."""
+    ensure_tables()
+    return True
+
+
+def _time_ago(ts):
+    secs = max(0, int((datetime.now() - ts).total_seconds()))
+    if secs < 60:
+        return "just now"
+    if secs < 3600:
+        return f"{secs // 60} min ago"
+    return f"{secs // 3600} h ago"
 
 # ----------------------------------------------------------------------------
 # CUSTOM THEME (CSS injection)
@@ -289,10 +313,11 @@ def train_crowd_model():
         rows.append([hour, dow, route, occ])
 
     df = pd.DataFrame(rows, columns=["hour", "dow", "route", "occupancy"])
-    X = pd.get_dummies(df[["hour", "dow", "route"]], columns=["route"])
+    X = pd.get_dummies(df[["hour", "dow", "route"]], columns=["route"]).astype(float)
     y = df["occupancy"]
 
-    model = RandomForestRegressor(n_estimators=120, max_depth=9, random_state=42)
+    # XGBoost gave the lowest error in the model comparison, so it powers the live app.
+    model = XGBRegressor(n_estimators=150, max_depth=5, learning_rate=0.1, random_state=42)
     model.fit(X, y)
     return model, X.columns.tolist(), route_popularity
 
@@ -304,7 +329,7 @@ def predict_occupancy(model, feature_cols, hour, dow, route):
     col = f"route_{route}"
     if col in row:
         row[col] = 1
-    X = pd.DataFrame([row])[feature_cols]
+    X = pd.DataFrame([row])[feature_cols].astype(float)
     return float(model.predict(X)[0])
 
 
@@ -628,6 +653,8 @@ def render_passenger(live_df, model, feature_cols):
         f"({best_bus['occupancy']:.0f}% full) heading to **{best_bus['next_stop']}**."
     )
 
+    driver_reports = get_latest_reports_for_route(route)
+
     for _, bus in route_buses.iterrows():
         with st.container(border=True):
             cols = st.columns([1.2, 2, 1, 1])
@@ -637,6 +664,9 @@ def render_passenger(live_df, model, feature_cols):
             cols[2].markdown(f"Next: **{bus['next_stop']}**\nETA ~{eta_min} min")
             badge = {"Comfortable": "🟢", "Moderate": "🟡", "Overcrowded": "🔴"}[bus["status"]]
             cols[3].markdown(f"{badge} {bus['status']}")
+            rep = driver_reports.get(bus["id"])
+            if rep:
+                st.caption(f"🧑‍✈️ Driver report: {rep['occupancy']:.0f}% full · {_time_ago(rep['time'])}")
 
     st.markdown("---")
     st.subheader("Route Map")
@@ -655,6 +685,10 @@ def render_passenger(live_df, model, feature_cols):
 
 def render_driver(live_df, model, feature_cols):
     st.title("🚍 Driver Dashboard")
+
+    flash = st.session_state.pop("driver_flash", None)
+    if flash:
+        st.success(flash)
 
     bus_id = st.selectbox("Select your Bus ID", live_df["id"].tolist())
     bus = live_df[live_df["id"] == bus_id].iloc[0]
@@ -706,6 +740,49 @@ def render_driver(live_df, model, feature_cols):
         predicted = predict_occupancy(model, feature_cols, next_hour.hour, next_hour.weekday(), bus["route"])
         st.info(f"🤖 AI Prediction: expected occupancy on this route in ~1 hour is **{predicted:.0f}%**.")
 
+    st.markdown("---")
+    st.subheader("📝 Report current crowd level")
+    st.caption("Your report is saved to the database and shown to passengers travelling on this route.")
+
+    with st.form(f"driver_report_form_{bus_id}"):
+        f1, f2 = st.columns([1, 1.4])
+        with f1:
+            onboard = st.slider("Passengers onboard now", 0, BUS_CAPACITY, int(bus["passengers"]))
+        with f2:
+            note = st.text_input("Note (optional)", max_chars=200, placeholder="e.g. Heavy rush near Silk Board")
+        submitted = st.form_submit_button("Submit report")
+
+    if submitted:
+        pct = onboard / BUS_CAPACITY * 100
+        ok, err = save_driver_report(st.session_state.user["username"], bus_id, pct, note)
+        if ok:
+            # reflect the driver's report in the live view straight away
+            st.session_state.buses.loc[st.session_state.buses["id"] == bus_id, "occupancy"] = pct
+            if pct >= 85:
+                st.session_state.alerts_log.append(
+                    {
+                        "time": st.session_state.sim_time.strftime("%Y-%m-%d %H:%M"),
+                        "bus": bus_id,
+                        "route": bus["route"],
+                        "occupancy": round(pct, 1),
+                    }
+                )
+                st.session_state.alerts_log = st.session_state.alerts_log[-100:]
+            st.session_state.driver_flash = f"Report saved: {bus_id} at {pct:.0f}% ({onboard}/{BUS_CAPACITY} passengers)."
+            st.rerun()
+        else:
+            st.error(err)
+
+    st.subheader("Recent reports for this bus")
+    recent = get_recent_reports(bus_code=bus_id, limit=5)
+    if recent:
+        rdf = pd.DataFrame(recent)
+        rdf["time"] = rdf["time"].dt.strftime("%d %b, %I:%M %p")
+        rdf["occupancy"] = rdf["occupancy"].round(0).astype(int).astype(str) + "%"
+        st.dataframe(rdf[["time", "driver", "occupancy", "note"]], hide_index=True, use_container_width=True)
+    else:
+        st.info("No reports submitted for this bus yet.")
+
 
 def render_model_comparison():
     st.title("📊 Model Comparison")
@@ -718,6 +795,7 @@ def render_model_comparison():
 
     best_model = results_df.loc[results_df["RMSE"].idxmin(), "Model"]
     st.success(f"✅ Lowest RMSE: **{best_model}**")
+    st.info(f"⚙️ The live predictions across this app are powered by **{LIVE_MODEL_NAME}**.")
 
     c1, c2 = st.columns(2)
     with c1:
@@ -762,6 +840,20 @@ def render_admin(live_df):
         height=320,
     )
     st.download_button("⬇️ Download live fleet data (CSV)", display_df.to_csv(index=False), file_name="fleet_status.csv")
+
+    st.markdown("---")
+    st.subheader("🧑‍✈️ Driver Reports (stored in PostgreSQL)")
+    total_reports, total_db_alerts = get_report_counts()
+    st.caption(f"{total_reports} driver report(s) saved · {total_db_alerts} overcrowding alert(s) stored in the database")
+    recent_reports = get_recent_reports(limit=20)
+    if recent_reports:
+        rep_df = pd.DataFrame(recent_reports)
+        rep_df["time"] = rep_df["time"].dt.strftime("%d %b, %I:%M %p")
+        rep_df["occupancy"] = rep_df["occupancy"].round(0).astype(int).astype(str) + "%"
+        st.dataframe(rep_df[["time", "bus", "route", "driver", "occupancy", "note"]],
+                     hide_index=True, use_container_width=True, height=260)
+    else:
+        st.info("No driver reports yet. Log in as a driver and submit one from the Driver Dashboard.")
 
     st.markdown("---")
     hist = st.session_state.history.copy()
@@ -1051,6 +1143,7 @@ def _render_signup_form():
 
 def main():
     inject_custom_css()
+    _ensure_db_tables()
 
     if "user" not in st.session_state:
         render_login()
